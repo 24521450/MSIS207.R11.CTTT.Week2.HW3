@@ -89,6 +89,7 @@ export type SaleEvent =
       readonly code: string;
       readonly message: string;
       readonly retryable: boolean;
+      readonly expiredAt: number;
     }
   | {
       readonly type: "RESERVATION_EXPIRED";

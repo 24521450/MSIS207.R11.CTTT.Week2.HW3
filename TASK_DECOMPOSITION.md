@@ -5,7 +5,7 @@
 - [x] S1: Read slide 32 and the common rules from slides 2, 3, 5, and 29.
 - [x] S2: Specify contracts and module boundaries before implementation.
 - [x] S3: Implement the anti-drift deadline timer and deterministic clock tests.
-- [ ] S4: Implement the sale state machine and transition tests.
+- [x] S4: Implement the sale state machine and transition tests.
 - [ ] S5: Implement shared atomic inventory reservation and concurrency tests.
 - [ ] S6: Implement exactly-once expiry and release behavior.
 - [ ] S7: Implement idempotent checkout and boundary/race tests.
