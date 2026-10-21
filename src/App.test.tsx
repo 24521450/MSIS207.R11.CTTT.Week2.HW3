@@ -1,0 +1,159 @@
+// @vitest-environment jsdom
+import { StrictMode } from "react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { SalePage } from "./App";
+import { InMemoryInventoryService } from "./domain/inventoryService";
+import type { InventoryRuntime, SaleConfig } from "./domain/contracts";
+
+const testConfig: SaleConfig = {
+  productName: "Demo headphones",
+  priceVnd: 1_290_000,
+  initialStock: 5,
+  unitsPerPurchase: 1,
+  saleDurationMs: 120_000,
+  reservationDurationMs: 15_000,
+};
+
+class ControlledRuntime implements InventoryRuntime {
+  nextHandle = 1;
+  timers = new Map<number, { at: number; callback: () => void }>();
+  nowValue: number;
+
+  constructor(nowValue: number) {
+    this.nowValue = nowValue;
+  }
+
+  now = (): number => this.nowValue;
+
+  schedule = (callback: () => void, delayMs: number): number => {
+    const handle = this.nextHandle++;
+    this.timers.set(handle, { at: this.nowValue + delayMs, callback });
+    return handle;
+  };
+
+  cancel = (handle: number): void => {
+    this.timers.delete(handle);
+  };
+
+  advanceTo(time: number): void {
+    this.nowValue = time;
+  }
+
+  runDue(): void {
+    while (true) {
+      const due = [...this.timers.entries()]
+        .filter(([, timer]) => timer.at <= this.nowValue)
+        .sort((left, right) => left[1].at - right[1].at)[0];
+      if (!due) return;
+      this.timers.delete(due[0]);
+      due[1].callback();
+    }
+  }
+}
+
+let runtime: ControlledRuntime;
+let frames: Map<number, FrameRequestCallback>;
+let nextFrame: number;
+let originalRequestFrame: typeof window.requestAnimationFrame;
+let originalCancelFrame: typeof window.cancelAnimationFrame;
+let operationNumber: number;
+
+beforeEach(() => {
+  runtime = new ControlledRuntime(100_000);
+  vi.spyOn(Date, "now").mockImplementation(() => runtime.nowValue);
+  frames = new Map();
+  nextFrame = 1;
+  operationNumber = 0;
+  originalRequestFrame = window.requestAnimationFrame;
+  originalCancelFrame = window.cancelAnimationFrame;
+  Object.defineProperty(window, "requestAnimationFrame", {
+    configurable: true,
+    value: (callback: FrameRequestCallback): number => {
+      const handle = nextFrame++;
+      frames.set(handle, callback);
+      return handle;
+    },
+  });
+  Object.defineProperty(window, "cancelAnimationFrame", {
+    configurable: true,
+    value: (handle: number): void => {
+      frames.delete(handle);
+    },
+  });
+  vi.stubGlobal("crypto", {
+    randomUUID: () => `operation-${++operationNumber}`,
+  });
+});
+
+afterEach(() => {
+  cleanup();
+  Object.defineProperty(window, "requestAnimationFrame", {
+    configurable: true,
+    value: originalRequestFrame,
+  });
+  Object.defineProperty(window, "cancelAnimationFrame", {
+    configurable: true,
+    value: originalCancelFrame,
+  });
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+describe("Mega-Sale UI", () => {
+  it("holds one unit and completes checkout in React StrictMode", async () => {
+    const service = new InMemoryInventoryService(testConfig, runtime);
+    render(
+      <StrictMode>
+        <SalePage service={service} />
+      </StrictMode>,
+    );
+    const user = userEvent.setup();
+
+    expect(screen.getByRole("heading", { name: "Săn deal chớp nhoáng. Giữ hàng kịp lúc." })).toBeTruthy();
+    expect(screen.getByText(/1\.290\.000\s*₫/)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Mua ngay" }));
+    await screen.findByRole("button", { name: "Thanh toán" });
+    expect(screen.getByText("1", { selector: ".inventory-cell strong" })).toBeTruthy();
+    expect(screen.getByText("4", { selector: ".inventory-cell strong" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Thanh toán" }));
+    await screen.findByText("Đặt hàng thành công");
+
+    expect(service.getSnapshot()).toMatchObject({ available: 4, reserved: 0, sold: 1 });
+    expect(screen.getByText("0", { selector: ".inventory-cell strong" })).toBeTruthy();
+    expect(screen.getByText("1", { selector: ".inventory-cell strong" })).toBeTruthy();
+  });
+
+  it("shows an expired hold and restored stock when a backgrounded tab resumes", async () => {
+    const service = new InMemoryInventoryService(testConfig, runtime);
+    render(<SalePage service={service} />);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: "Mua ngay" }));
+    await screen.findByRole("button", { name: "Thanh toán" });
+    const reservation = service.getSnapshot();
+    expect(reservation.reserved).toBe(1);
+
+    runtime.advanceTo(runtime.nowValue + testConfig.reservationDurationMs);
+    runtime.runDue();
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    await waitFor(() =>
+      expect(screen.getByText("Thời gian giữ hàng đã hết; sản phẩm được trả lại kho.")).toBeTruthy(),
+    );
+    expect(service.getSnapshot()).toMatchObject({ available: 5, reserved: 0, sold: 0 });
+    expect(screen.getByRole("button", { name: "Mua ngay" }).hasAttribute("disabled")).toBe(false);
+  });
+
+  it("cleans the active animation frame on unmount", () => {
+    const service = new InMemoryInventoryService(testConfig, runtime);
+    const view = render(<SalePage service={service} />);
+    expect(frames.size).toBe(1);
+
+    view.unmount();
+
+    expect(frames.size).toBe(0);
+  });
+});
