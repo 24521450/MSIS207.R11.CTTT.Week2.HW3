@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "typecheck": "tsc -b",
     "test": "vitest run",
-    "verify:browser": "node scripts/verify-delayed-reservation.mjs"
+    "verify:browser": "node scripts/verify-delayed-reservation.mjs",
+    "verify:production-browser": "node scripts/verify-production-preview.mjs"
   },
   "dependencies": {
     "react": "^19.3.1",
