@@ -115,7 +115,7 @@ export type ReserveResult =
     }
   | {
       readonly ok: false;
-      readonly reason: "sale-ended" | "sold-out";
+      readonly reason: "sale-ended" | "sold-out" | "request-id-used";
       readonly message: string;
       readonly snapshot: InventorySnapshot;
     };
@@ -146,13 +146,19 @@ export interface InventoryRuntime {
   readonly cancel: (handle: number) => void;
 }
 
-export interface InventoryService {
-  readonly saleEndsAt: number;
+export interface InventoryLedger {
   getSnapshot(): InventorySnapshot;
   subscribe(listener: (snapshot: InventorySnapshot) => void): () => void;
   reserve(requestId: string): Promise<ReserveResult>;
+}
+
+export interface ReservationLedger extends InventoryLedger {
   releaseReservation(reservationId: string): InventorySnapshot;
   expireReservation(reservationId: string): ExpiryResult;
+}
+
+export interface InventoryService extends ReservationLedger {
+  readonly saleEndsAt: number;
   checkout(reservationId: string, attemptId: string): Promise<CheckoutResult>;
 }
 
