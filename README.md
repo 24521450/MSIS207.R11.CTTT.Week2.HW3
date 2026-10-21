@@ -19,9 +19,12 @@ npm test
 npm run lint
 npm run build
 npm run verify:browser
+npm run verify:production-browser
 ```
 
-`verify:browser` cần Google Chrome đã cài và cổng 5413 còn trống. Script tự mở/đóng Vite và Chrome headless, dùng clock điều khiển được để giữ phản hồi reserve 16 giây khi TTL chỉ 15 giây, rồi kiểm tra hết hạn → mua lại → thanh toán. Bằng chứng JSON và ảnh nằm trong `evidence/`.
+`verify:browser` cần Google Chrome đã cài và cổng 5413 còn trống. Script tự mở/đóng Vite dev server và Chrome headless; nó inject service mô phỏng tại module boundary, trì hoãn phản hồi reserve 16 giây với TTL 15 giây, rồi kiểm tra hết hạn → mua lại → thanh toán.
+
+Chạy `npm run build` trước `npm run verify:production-browser`. Lệnh production mở Vite preview trên thư mục `dist`, dùng service in-memory nguyên trạng và Chrome với clock điều khiển để kiểm tra mua → giữ → checkout cùng hết hạn → mua lại. Cả hai script đều kiểm tra console/page errors và ghi bằng chứng JSON/ảnh vào `evidence/`; service injection chỉ dùng ở dev regression, không nằm trong luồng sản phẩm hay bundle production.
 
 ## Mô hình trạng thái
 
@@ -58,8 +61,8 @@ Tồn kho chỉ ở trong bộ nhớ của một trang/trình duyệt đang ch�
 
 ## Kết quả kiểm chứng
 
-- Typecheck, lint và production build đều thành công.
-- 25 unit/component tests qua, gồm timer, transition, 100 yêu cầu đồng thời với stock 5, expiry một lần, checkout/race, phản hồi trễ/cũ/sau unmount và React StrictMode.
-- Đã kiểm tra bằng browser preview: mua → giữ hàng → checkout; sau khi tải lại, mua → hết hạn → tồn kho trở về 5.
-- Regression trong Chrome xác nhận phản hồi trễ 16 giây thoát `reserving`, trả kho về 5/0/0, cho mua lại và checkout thành 4/0/1; không có lỗi console/page. Xem [bằng chứng JSON](evidence/delayed-reservation-browser.json) và [ảnh UI phục hồi](evidence/delayed-reservation-recovered.png).
+- Typecheck, lint và production build thành công; 30 unit/component tests qua.
+- Production preview: mua → giữ → checkout và mua → giữ → hết hạn → mua lại → checkout; console rỗng, mọi request thành công. Xem [bằng chứng production browser](evidence/production-preview-browser.json), [ảnh sau checkout](evidence/production-preview-checkout.png) và [ảnh sau khi hết hạn](evidence/production-preview-expiry.png).
+- Dev browser regression với response delay 16 giây: thoát `reserving`, kho về 5/0/0, mua lại và checkout thành 4/0/1; không có lỗi console/page. Xem [bằng chứng delayed response](evidence/delayed-reservation-browser.json) và [ảnh phục hồi](evidence/delayed-reservation-recovered.png).
+- [Ma trận nghiệm thu độc lập](evidence/acceptance-matrix.md) nêu rõ cách kiểm tra và kết quả từng nhóm yêu cầu; chi tiết lệnh và môi trường nằm trong [`evidence/verification.md`](evidence/verification.md).
 - Chi tiết chạy lại và các lỗi AI đã phát hiện nằm trong [`evidence/verification.md`](evidence/verification.md) và [`AI_FAILURE_AUDIT.md`](AI_FAILURE_AUDIT.md).

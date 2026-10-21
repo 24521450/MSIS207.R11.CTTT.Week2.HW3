@@ -44,3 +44,14 @@ One module or closely coupled behavior group per commit. Avoid single-shot imple
 - [x] Route an already-expired reserve response to the matching expired state without changing the inventory service.
 - [x] Run typecheck, all 25 tests, lint, build, and the reproducible Chrome delayed-response walkthrough; save JSON/screenshot evidence and update the failure audit.
 - [x] Commit the repair with Conventional Commits and push `main`: `643e5e6 fix(state): recover expired reservation responses`; the remote `main` SHA matched the local commit after push.
+
+## Independent acceptance review — 2026-10-21
+
+- [x] Re-read `project-rules.md`, this WBS, `README.md`, `AI_FAILURE_AUDIT.md`, `evidence/verification.md`, and slide 32 from both the Lab 2 PDF page and extracted Markdown. Rechecked the shared standards on slides 2, 3, 5, and 29.
+- [x] Independently inspect service, reducer, timer, hook, and UI behavior against inventory, deadline, stale-response, checkout-race, and lifecycle requirements; record each result in `evidence/acceptance-matrix.md`.
+- [x] Extend deterministic coverage for sale-end and reservation-expiry boundaries, checkout-winning expiry race, and reserve/checkout success and rejection responses after unmount. No sale logic defect was found in this pass.
+- [x] Production preview browser: verify standard checkout and expiry/retry using the real app bundle and in-memory service, with a controlled browser clock and no service injection.
+- [x] Dev browser: repeat the 16-second delayed reservation response using the real in-memory service wrapped at the module boundary. Report separately from production-preview results.
+- [x] Fix the production preview's observed `/favicon.ico` 404 with a local SVG favicon; rerun browser checks and confirm there are no page/console errors or failed HTTP responses.
+- [x] Run `npm run typecheck`, all tests (30 passed), `npm run lint`, `npm run build`, `npm run verify:browser`, and `npm run verify:production-browser`.
+- [x] Save current JSON and screenshot evidence; verify `dist` contains no test instrumentation. No additional AI-generated failure was confirmed, so the audit adds no new failure entry.

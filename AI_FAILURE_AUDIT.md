@@ -45,3 +45,7 @@ Audit of defects found in AI-generated implementation and verification work for 
 ## Scope note
 
 Entries 3 and 4 were mistakes in generated test assumptions, not defects in the service. They are retained because they produced concrete failing evidence and initially obscured correct expiry behavior. The source and test suite avoid raw HTML injection, `var`, `setInterval`, and unstable React list keys.
+
+## Independent review follow-up — 2026-10-21
+
+The review at `7f313b6` rechecked the listed defects and their regression evidence. It found no additional confirmed AI-generated failure. The production-preview check did expose a separate missing-icon 404 at `/favicon.ico`; adding `public/favicon.svg` removed the console error on rerun. This asset omission is documented as a browser-check finding, not counted as an AI failure because this review did not establish that it came from AI-generated flawed logic. The expanded suite now passes all 30 tests; production-preview and delayed-response browser results are recorded in `evidence/verification.md` and `evidence/acceptance-matrix.md`.

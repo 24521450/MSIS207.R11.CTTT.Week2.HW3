@@ -56,3 +56,43 @@ No console or page errors occurred. Machine-readable results and the visually in
 Repository: `https://github.com/24521450/MSIS207.R11.CTTT.Week2.HW3` — GitHub reports `PUBLIC` visibility and `main` as the default branch. `git push -u origin main` succeeded; `git ls-remote origin refs/heads/main` matched the local `main` HEAD. The checkout was clean and tracking `origin/main` at verification.
 
 Delayed-response repair: [`643e5e6 fix(state): recover expired reservation responses`](https://github.com/24521450/MSIS207.R11.CTTT.Week2.HW3/commit/643e5e6b6131489ede31413377a2e84e919b73c5) was pushed to `main`; `git ls-remote origin refs/heads/main` returned the same full SHA as the local repair commit. The repair includes the five regression tests, reproducible browser script, audit, JSON results and recovery screenshot.
+
+## Independent acceptance review — 2026-10-21
+
+The review started from clean `main` at `7f313b6`, matching `origin/main`. It re-read the project rules, WBS, README, AI failure audit, this verification record, the extracted slide 32 Markdown, and the text extracted directly from PDF page 32. Shared rules on slides 2, 3, 5, and 29 were cross-checked as well. The requirement-by-requirement result is in [`acceptance-matrix.md`](acceptance-matrix.md).
+
+### Current automated checks
+
+| Command | Result |
+| --- | --- |
+| `npm run typecheck` | Exit 0 (`tsc -b`) |
+| `npm test` | Exit 0; 4 files, 30 tests passed |
+| `npm run lint` | Exit 0 (`oxlint`) |
+| `npm run build` | Exit 0; TypeScript project build and Vite 8.3.5 production build completed |
+| `npm run verify:browser` | Exit 0; Chrome delayed-response regression on Vite dev server with service injection |
+| `npm run verify:production-browser` | Exit 0; Chrome standard flow on Vite preview serving `dist`, with no service injection |
+
+The expanded deterministic tests check a reservation before, at, and after its expiry; new reservations before, exactly at, and after `saleEndsAt`; active checkout after the sale closes; 100 simultaneous reserve requests with stock 5; request-ID deduplication; exactly-once expiry; idempotent checkout; and both race outcomes. In the expiry-wins ordering, the hold returns to stock and checkout is rejected. In the checkout-wins ordering, checkout at `expiresAt - 1` completes; invoking the old expiry callback leaves sold stock unchanged. Service writes assert the inventory invariant on every snapshot mutation.
+
+UI lifecycle tests use React StrictMode and a controlled clock. They cover a delayed successful reserve after unmount being released, a late reserve rejection, late checkout success, a checkout result rejected because expiry won, and a thrown checkout rejection. Component RAFs are gone after unmount. When checkout is unresolved but the service still owns an active hold, its one expiry timer remains after unmount; advancing to the deadline returns the unit once and clears that service-owned timer. The controller unsubscribe and timer cleanup paths are also exercised. The delayed-response UI test confirms a previous inventory snapshot cannot replace the newer expiry snapshot.
+
+### Production preview browser check
+
+`npm run verify:production-browser` opened the built `dist` bundle through Vite preview in Chrome 155.0.8059.85. It used the normal `saleSession` and `InMemoryInventoryService`; the service was not injected or wrapped. Playwright advanced the browser clock by 16 seconds for hold expiry and dispatched `visibilitychange` to verify the same deadline refresh used when a tab becomes visible.
+
+Observed flows:
+
+1. Initial stock `5/0/0`; click **Mua ngay** → held stock `4/1/0`, checkout enabled and buy disabled; click **Thanh toán** → success and stock `4/0/1`.
+2. A fresh page starts at `5/0/0`; click **Mua ngay** → `4/1/0`; advance beyond the 15-second hold → the expiry message appears, stock returns to `5/0/0`, and buy is enabled; buy again → `4/1/0`, then checkout → `4/0/1`.
+
+The production script asserts no delayed-test global is present and records zero page errors, console errors, or failed HTTP responses. Screenshots: [`production-preview-checkout.png`](production-preview-checkout.png) and [`production-preview-expiry.png`](production-preview-expiry.png). Machine results: [`production-preview-browser.json`](production-preview-browser.json).
+
+### Delayed-response dev browser check
+
+`npm run verify:browser` uses Chrome 155.0.8059.85 against the Vite development server. It intercepts the `saleSession.ts` module to wrap the real in-memory service and delay the first successful reserve response by 16 seconds while its TTL is 15 seconds. The app entry remains the normal StrictMode entry; this injection is test-only and absent from `dist`. The browser clock is controlled. Results: the current pending request shows `4/1/0`; after expiry the exact message `Thời gian giữ hàng đã hết trước khi giao diện xác nhận.` appears with `5/0/0` and buy enabled; retry reaches `4/1/0`; repeating expiry of the old ID leaves version 3 unchanged; checkout reaches `4/0/1`. No console or page errors occurred. See [`delayed-reservation-browser.json`](delayed-reservation-browser.json) and [`delayed-reservation-recovered.png`](delayed-reservation-recovered.png).
+
+### Finding fixed during this review
+
+The first production-preview run completed the purchase flows but failed its browser-error assertion: Chrome requested `/favicon.ico`, received 404, and emitted `Failed to load resource`. The preview had no icon link or favicon asset. Added an explicit local SVG favicon in `index.html` and `public/favicon.svg`; after rebuilding, the production check passed with no failed responses and no console/page errors. This was a static-asset issue, not a sale-state or inventory defect, and is not counted as an AI failure in the audit.
+
+Static checks found no `setInterval`, `var`, raw HTML injection, inline HTML event handlers, `Math.random()` IDs, or random/index list keys in TypeScript sources. The built `dist` contains `favicon.svg` and no test-harness/service-injection markers. The UI remains a one-product, one-browser in-memory simulation; no backend or deployment was added.
