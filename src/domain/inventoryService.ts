@@ -224,7 +224,13 @@ export class InMemoryInventoryService implements InventoryService {
     if (!inventoryInvariantHolds(this.snapshot)) {
       throw new Error("Inventory invariant failed after an atomic update.");
     }
-    for (const listener of [...this.listeners]) listener(this.snapshot);
+    for (const listener of [...this.listeners]) {
+      try {
+        listener(this.snapshot);
+      } catch {
+        // Observer failures cannot change the result of an already committed mutation.
+      }
+    }
   }
 
   async checkout(

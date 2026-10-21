@@ -213,4 +213,14 @@ describe("InMemoryInventoryService reservations", () => {
     });
     expect(inventoryInvariantHolds(service.getSnapshot())).toBe(true);
   });
+
+  it("keeps observer failures from turning a committed reservation into a rejected request", async () => {
+    const service = new InMemoryInventoryService(config, new FakeInventoryRuntime());
+    service.subscribe(() => {
+      throw new Error("observer render failed");
+    });
+
+    await expect(service.reserve("observer-failure")).resolves.toMatchObject({ ok: true });
+    expect(service.getSnapshot()).toMatchObject({ available: 4, reserved: 1, sold: 0 });
+  });
 });
