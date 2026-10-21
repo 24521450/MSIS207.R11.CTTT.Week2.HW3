@@ -8,7 +8,7 @@
 - [x] S4: Implement the sale state machine and transition tests.
 - [x] S5: Implement shared atomic inventory reservation and concurrency tests.
 - [x] S6: Implement exactly-once expiry and release behavior.
-- [ ] S7: Implement idempotent checkout and boundary/race tests.
+- [x] S7: Implement idempotent checkout and boundary/race tests.
 - [ ] S8: Connect the state machine and service to accessible React UI.
 - [ ] S9: Run typecheck, tests, build, browser walkthrough, and capture concise evidence.
 - [ ] S10: Write the evidence-based AI failure audit and README, then push `main`.

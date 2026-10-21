@@ -139,4 +139,78 @@ describe("InMemoryInventoryService reservations", () => {
     expect(service.getSnapshot().version).toBe(versionBeforeStaleCallback);
     expect(inventoryInvariantHolds(service.getSnapshot())).toBe(true);
   });
+
+  it("checks the reservation deadline at checkout and accepts just-before expiry", async () => {
+    const beforeRuntime = new FakeInventoryRuntime();
+    const beforeService = new InMemoryInventoryService(config, beforeRuntime);
+    const before = await beforeService.reserve("before-expiry");
+    if (!before.ok) throw new Error("Expected the reservation to succeed");
+    beforeRuntime.setTime(before.reservation.expiresAt - 1);
+    const accepted = await beforeService.checkout(before.reservation.id, "attempt-before");
+    expect(accepted).toMatchObject({
+      ok: true,
+      snapshot: { available: 4, reserved: 0, sold: 1 },
+    });
+
+    const atRuntime = new FakeInventoryRuntime();
+    const atService = new InMemoryInventoryService(config, atRuntime);
+    const at = await atService.reserve("at-expiry");
+    if (!at.ok) throw new Error("Expected the reservation to succeed");
+    atRuntime.setTime(at.reservation.expiresAt);
+    const rejected = await atService.checkout(at.reservation.id, "attempt-at");
+    expect(rejected).toMatchObject({
+      ok: false,
+      reason: "reservation-expired",
+      snapshot: { available: 5, reserved: 0, sold: 0 },
+    });
+  });
+
+  it("makes repeated checkout attempts idempotent", async () => {
+    const service = new InMemoryInventoryService(config, new FakeInventoryRuntime());
+    const reserved = await service.reserve("checkout-once");
+    if (!reserved.ok) throw new Error("Expected the reservation to succeed");
+
+    const results = await Promise.all([
+      service.checkout(reserved.reservation.id, "stable-attempt"),
+      service.checkout(reserved.reservation.id, "stable-attempt"),
+      service.checkout(reserved.reservation.id, "second-click"),
+    ]);
+
+    expect(results.every((result) => result.ok)).toBe(true);
+    expect(service.getSnapshot()).toMatchObject({ available: 4, reserved: 0, sold: 1, version: 2 });
+    expect(inventoryInvariantHolds(service.getSnapshot())).toBe(true);
+  });
+
+  it("rejects new holds after sale end but permits an active hold to check out", async () => {
+    const shortSale = { ...config, saleDurationMs: 10_000 };
+    const runtime = new FakeInventoryRuntime();
+    const service = new InMemoryInventoryService(shortSale, runtime);
+    const reserved = await service.reserve("after-sale-end");
+    if (!reserved.ok) throw new Error("Expected the reservation to succeed");
+    runtime.setTime(service.saleEndsAt);
+
+    const newPurchase = await service.reserve("too-late");
+    expect(newPurchase).toMatchObject({ ok: false, reason: "sale-ended" });
+    const completed = await service.checkout(reserved.reservation.id, "after-sale-checkout");
+    expect(completed).toMatchObject({ ok: true, snapshot: { reserved: 0, sold: 1 } });
+  });
+
+  it("resolves checkout-expiry races using the time at the service decision", async () => {
+    const runtime = new FakeInventoryRuntime();
+    const service = new InMemoryInventoryService(config, runtime);
+    const reserved = await service.reserve("race");
+    if (!reserved.ok) throw new Error("Expected the reservation to succeed");
+
+    const pendingCheckout = service.checkout(reserved.reservation.id, "race-attempt");
+    runtime.setTime(reserved.reservation.expiresAt);
+    runtime.runDue();
+    const raceResult = await pendingCheckout;
+
+    expect(raceResult).toMatchObject({
+      ok: false,
+      reason: "reservation-expired",
+      snapshot: { available: 5, reserved: 0, sold: 0 },
+    });
+    expect(inventoryInvariantHolds(service.getSnapshot())).toBe(true);
+  });
 });

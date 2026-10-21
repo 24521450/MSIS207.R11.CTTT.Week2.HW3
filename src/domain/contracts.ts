@@ -128,7 +128,10 @@ export type CheckoutResult =
     }
   | {
       readonly ok: false;
-      readonly reason: "reservation-expired" | "reservation-not-found";
+      readonly reason:
+        | "reservation-expired"
+        | "reservation-not-found"
+        | "attempt-id-used";
       readonly message: string;
       readonly reservation?: Reservation;
       readonly snapshot: InventorySnapshot;

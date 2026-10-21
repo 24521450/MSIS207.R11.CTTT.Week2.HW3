@@ -1,8 +1,9 @@
 import type {
+  CheckoutResult,
   InventoryRuntime,
+  InventoryService,
   InventorySnapshot,
   Reservation,
-  ReservationLedger,
   ReserveResult,
   SaleConfig,
 } from "./contracts";
@@ -38,12 +39,13 @@ function validateConfig(config: SaleConfig): void {
  * Browser-local inventory ledger. Each async operation yields once before its
  * mutation, then checks and updates the shared ledger synchronously.
  */
-export class InMemoryInventoryService implements ReservationLedger {
+export class InMemoryInventoryService implements InventoryService {
   readonly saleEndsAt: number;
   protected readonly runtime: InventoryRuntime;
   protected readonly config: SaleConfig;
   protected readonly reservations = new Map<string, Reservation>();
   protected readonly expiryHandles = new Map<string, number>();
+  protected readonly successfulAttempts = new Map<string, Reservation>();
   protected readonly listeners = new Set<(snapshot: InventorySnapshot) => void>();
   protected snapshot: InventorySnapshot;
 
@@ -223,5 +225,73 @@ export class InMemoryInventoryService implements ReservationLedger {
       throw new Error("Inventory invariant failed after an atomic update.");
     }
     for (const listener of [...this.listeners]) listener(this.snapshot);
+  }
+
+  async checkout(
+    reservationId: string,
+    attemptId: string,
+  ): Promise<CheckoutResult> {
+    await Promise.resolve();
+
+    const previousAttempt = this.successfulAttempts.get(attemptId);
+    if (previousAttempt) {
+      if (previousAttempt.id === reservationId) {
+        return { ok: true, reservation: previousAttempt, snapshot: this.snapshot };
+      }
+      return {
+        ok: false,
+        reason: "attempt-id-used",
+        message: "This checkout attempt ID already belongs to another reservation.",
+        snapshot: this.snapshot,
+      };
+    }
+
+    const now = this.runtime.now();
+    this.expireDue(now);
+    const reservation = this.reservations.get(reservationId);
+    if (!reservation) {
+      return {
+        ok: false,
+        reason: "reservation-not-found",
+        message: "This reservation could not be found.",
+        snapshot: this.snapshot,
+      };
+    }
+    if (reservation.status === "completed") {
+      this.successfulAttempts.set(attemptId, reservation);
+      return { ok: true, reservation, snapshot: this.snapshot };
+    }
+    if (reservation.status === "expired") {
+      return {
+        ok: false,
+        reason: "reservation-expired",
+        message: "The reservation hold expired before checkout completed.",
+        reservation,
+        snapshot: this.snapshot,
+      };
+    }
+    if (reservation.status !== "reserved") {
+      return {
+        ok: false,
+        reason: "reservation-not-found",
+        message: "This reservation is no longer available for checkout.",
+        reservation,
+        snapshot: this.snapshot,
+      };
+    }
+
+    this.cancelExpiry(reservationId);
+    const completed: Reservation = Object.freeze({
+      ...reservation,
+      status: "completed",
+    });
+    this.reservations.set(reservationId, completed);
+    this.successfulAttempts.set(attemptId, completed);
+    this.writeSnapshot({
+      available: this.snapshot.available,
+      reserved: this.snapshot.reserved - this.config.unitsPerPurchase,
+      sold: this.snapshot.sold + this.config.unitsPerPurchase,
+    });
+    return { ok: true, reservation: completed, snapshot: this.snapshot };
   }
 }
