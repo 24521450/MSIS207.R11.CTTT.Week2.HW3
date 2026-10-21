@@ -7,7 +7,7 @@
 - [x] S3: Implement the anti-drift deadline timer and deterministic clock tests.
 - [x] S4: Implement the sale state machine and transition tests.
 - [x] S5: Implement shared atomic inventory reservation and concurrency tests.
-- [ ] S6: Implement exactly-once expiry and release behavior.
+- [x] S6: Implement exactly-once expiry and release behavior.
 - [ ] S7: Implement idempotent checkout and boundary/race tests.
 - [ ] S8: Connect the state machine and service to accessible React UI.
 - [ ] S9: Run typecheck, tests, build, browser walkthrough, and capture concise evidence.

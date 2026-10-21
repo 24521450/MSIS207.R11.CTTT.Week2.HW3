@@ -1,8 +1,8 @@
 import type {
-  InventoryLedger,
   InventoryRuntime,
   InventorySnapshot,
   Reservation,
+  ReservationLedger,
   ReserveResult,
   SaleConfig,
 } from "./contracts";
@@ -38,11 +38,12 @@ function validateConfig(config: SaleConfig): void {
  * Browser-local inventory ledger. Each async operation yields once before its
  * mutation, then checks and updates the shared ledger synchronously.
  */
-export class InMemoryInventoryService implements InventoryLedger {
+export class InMemoryInventoryService implements ReservationLedger {
   readonly saleEndsAt: number;
   protected readonly runtime: InventoryRuntime;
   protected readonly config: SaleConfig;
   protected readonly reservations = new Map<string, Reservation>();
+  protected readonly expiryHandles = new Map<string, number>();
   protected readonly listeners = new Set<(snapshot: InventorySnapshot) => void>();
   protected snapshot: InventorySnapshot;
 
@@ -64,6 +65,7 @@ export class InMemoryInventoryService implements InventoryLedger {
   }
 
   getSnapshot(): InventorySnapshot {
+    this.expireDue(this.runtime.now());
     return this.snapshot;
   }
 
@@ -77,6 +79,7 @@ export class InMemoryInventoryService implements InventoryLedger {
     // below the await is one uninterrupted read/check/write critical section.
     await Promise.resolve();
     const now = this.runtime.now();
+    this.expireDue(now);
     const existing = this.reservations.get(requestId);
     if (existing) {
       if (existing.status === "reserved") {
@@ -118,7 +121,94 @@ export class InMemoryInventoryService implements InventoryLedger {
       reserved: this.snapshot.reserved + this.config.unitsPerPurchase,
       sold: this.snapshot.sold,
     });
+    this.scheduleExpiry(reservation);
     return { ok: true, reservation, snapshot: this.snapshot };
+  }
+
+  releaseReservation(reservationId: string): InventorySnapshot {
+    const now = this.runtime.now();
+    this.expireDue(now);
+    const reservation = this.reservations.get(reservationId);
+    if (!reservation || reservation.status !== "reserved") return this.snapshot;
+
+    this.cancelExpiry(reservationId);
+    this.reservations.set(
+      reservationId,
+      Object.freeze({ ...reservation, status: "released" }),
+    );
+    this.writeSnapshot({
+      available: this.snapshot.available + this.config.unitsPerPurchase,
+      reserved: this.snapshot.reserved - this.config.unitsPerPurchase,
+      sold: this.snapshot.sold,
+    });
+    return this.snapshot;
+  }
+
+  expireReservation(reservationId: string): {
+    changed: boolean;
+    reservation: Reservation | null;
+    snapshot: InventorySnapshot;
+  } {
+    return this.expireReservationAt(reservationId, this.runtime.now());
+  }
+
+  protected expireDue(now: number): void {
+    for (const [reservationId, reservation] of this.reservations) {
+      if (reservation.status === "reserved" && now >= reservation.expiresAt) {
+        this.expireReservationAt(reservationId, now);
+      }
+    }
+  }
+
+  protected expireReservationAt(
+    reservationId: string,
+    now: number,
+  ): {
+    changed: boolean;
+    reservation: Reservation | null;
+    snapshot: InventorySnapshot;
+  } {
+    const reservation = this.reservations.get(reservationId) ?? null;
+    if (
+      !reservation ||
+      reservation.status !== "reserved" ||
+      now < reservation.expiresAt
+    ) {
+      return { changed: false, reservation, snapshot: this.snapshot };
+    }
+
+    this.cancelExpiry(reservationId);
+    const expired: Reservation = Object.freeze({ ...reservation, status: "expired" });
+    this.reservations.set(reservationId, expired);
+    this.writeSnapshot({
+      available: this.snapshot.available + this.config.unitsPerPurchase,
+      reserved: this.snapshot.reserved - this.config.unitsPerPurchase,
+      sold: this.snapshot.sold,
+    });
+    return { changed: true, reservation: expired, snapshot: this.snapshot };
+  }
+
+  protected scheduleExpiry(reservation: Reservation): void {
+    let handle = -1;
+    handle = this.runtime.schedule(() => {
+      if (this.expiryHandles.get(reservation.id) !== handle) return;
+      this.expiryHandles.delete(reservation.id);
+      const result = this.expireReservationAt(
+        reservation.id,
+        this.runtime.now(),
+      );
+      if (!result.changed && result.reservation?.status === "reserved") {
+        this.scheduleExpiry(result.reservation);
+      }
+    }, Math.max(0, reservation.expiresAt - this.runtime.now()));
+    this.expiryHandles.set(reservation.id, handle);
+  }
+
+  protected cancelExpiry(reservationId: string): void {
+    const handle = this.expiryHandles.get(reservationId);
+    if (handle === undefined) return;
+    this.runtime.cancel(handle);
+    this.expiryHandles.delete(reservationId);
   }
 
   protected writeSnapshot(
