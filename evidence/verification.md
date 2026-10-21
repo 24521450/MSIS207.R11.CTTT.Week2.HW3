@@ -29,3 +29,7 @@ The production preview was opened at `http://127.0.0.1:4174/` because port 4173 
 4. Reload to start a fresh in-memory simulation, click **Mua ngay**, then leave the hold untouched. At expiry the page announced that the hold expired, available returned to 5, reserved and sold were 0, and **Mua ngay** became available again.
 
 The browser checks were against the production preview bundle. No remote deployment was made, per the requested scope.
+
+## GitHub delivery
+
+Repository: `https://github.com/24521450/MSIS207.R11.CTTT.Week2.HW3` — GitHub reports `PUBLIC` visibility and `main` as the default branch. `git push -u origin main` succeeded; `git ls-remote origin refs/heads/main` matched the local `main` HEAD. The checkout was clean and tracking `origin/main` at verification.
