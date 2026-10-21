@@ -54,3 +54,5 @@ No console or page errors occurred. Machine-readable results and the visually in
 ## GitHub delivery
 
 Repository: `https://github.com/24521450/MSIS207.R11.CTTT.Week2.HW3` — GitHub reports `PUBLIC` visibility and `main` as the default branch. `git push -u origin main` succeeded; `git ls-remote origin refs/heads/main` matched the local `main` HEAD. The checkout was clean and tracking `origin/main` at verification.
+
+Delayed-response repair: [`643e5e6 fix(state): recover expired reservation responses`](https://github.com/24521450/MSIS207.R11.CTTT.Week2.HW3/commit/643e5e6b6131489ede31413377a2e84e919b73c5) was pushed to `main`; `git ls-remote origin refs/heads/main` returned the same full SHA as the local repair commit. The repair includes the five regression tests, reproducible browser script, audit, JSON results and recovery screenshot.

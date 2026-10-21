@@ -43,4 +43,4 @@ One module or closely coupled behavior group per commit. Avoid single-shot imple
 - [x] Add reducer and StrictMode UI regression tests for an expired response, retry, stale response after a newer request, and response after unmount.
 - [x] Route an already-expired reserve response to the matching expired state without changing the inventory service.
 - [x] Run typecheck, all 25 tests, lint, build, and the reproducible Chrome delayed-response walkthrough; save JSON/screenshot evidence and update the failure audit.
-- [ ] Commit the repair with Conventional Commits and push `main`.
+- [x] Commit the repair with Conventional Commits and push `main`: `643e5e6 fix(state): recover expired reservation responses`; the remote `main` SHA matched the local commit after push.
