@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SalePage } from "./App";
 import { InMemoryInventoryService } from "./domain/inventoryService";
-import type { InventoryRuntime, ReserveResult, SaleConfig } from "./domain/contracts";
+import type { CheckoutResult, InventoryRuntime, ReserveResult, SaleConfig } from "./domain/contracts";
 
 const testConfig: SaleConfig = {
   productName: "Demo headphones",
@@ -51,6 +51,16 @@ class ControlledRuntime implements InventoryRuntime {
       due[1].callback();
     }
   }
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
 }
 
 function delayNextReserveResponse(service: InMemoryInventoryService): () => ReserveResult {
@@ -261,6 +271,139 @@ describe("Mega-Sale UI", () => {
     });
 
     expect(service.getSnapshot()).toMatchObject({ available: 5, reserved: 0, sold: 0, version: 2 });
+    expect(runtime.timers.size).toBe(0);
+    expect(frames.size).toBe(0);
+    expect(view.container.childElementCount).toBe(0);
+  });
+
+  it("ignores a reserve rejection delivered after unmount", async () => {
+    const service = new InMemoryInventoryService(testConfig, runtime);
+    const lateResponse = deferred<ReserveResult>();
+    vi.spyOn(service, "reserve").mockImplementationOnce(() => lateResponse.promise);
+    const view = render(
+      <StrictMode>
+        <SalePage service={service} />
+      </StrictMode>,
+    );
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: "Mua ngay" }));
+    view.unmount();
+    await act(async () => {
+      lateResponse.reject(new Error("late reserve rejection"));
+      await lateResponse.promise.catch(() => undefined);
+    });
+
+    expect(service.getSnapshot()).toMatchObject({ available: 5, reserved: 0, sold: 0 });
+    expect(runtime.timers.size).toBe(0);
+    expect(frames.size).toBe(0);
+    expect(view.container.childElementCount).toBe(0);
+  });
+
+  it("ignores a successful checkout response delivered after unmount", async () => {
+    const service = new InMemoryInventoryService(testConfig, runtime);
+    const actualCheckout = service.checkout.bind(service);
+    const responseCommitted = deferred<CheckoutResult>();
+    const lateResponse = deferred<CheckoutResult>();
+    vi.spyOn(service, "checkout").mockImplementationOnce(async (reservationId, attemptId) => {
+      const result = await actualCheckout(reservationId, attemptId);
+      responseCommitted.resolve(result);
+      return lateResponse.promise;
+    });
+    const view = render(
+      <StrictMode>
+        <SalePage service={service} />
+      </StrictMode>,
+    );
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: "Mua ngay" }));
+    await screen.findByRole("button", { name: "Thanh toán" });
+    await user.click(screen.getByRole("button", { name: "Thanh toán" }));
+    const committedResult = await responseCommitted.promise;
+    expect(committedResult).toMatchObject({ ok: true });
+    expect(service.getSnapshot()).toMatchObject({ available: 4, reserved: 0, sold: 1 });
+
+    view.unmount();
+    expect(frames.size).toBe(0);
+    expect(runtime.timers.size).toBe(0);
+    await act(async () => {
+      lateResponse.resolve(committedResult);
+      await lateResponse.promise;
+    });
+
+    expect(service.getSnapshot()).toMatchObject({ available: 4, reserved: 0, sold: 1 });
+    expect(view.container.childElementCount).toBe(0);
+  });
+
+  it("ignores an expired checkout result delivered after unmount", async () => {
+    const service = new InMemoryInventoryService(testConfig, runtime);
+    const actualCheckout = service.checkout.bind(service);
+    const checkoutStarted = deferred<void>();
+    const allowServiceDecision = deferred<void>();
+    const lateResponse = deferred<CheckoutResult>();
+    vi.spyOn(service, "checkout").mockImplementationOnce(async (reservationId, attemptId) => {
+      checkoutStarted.resolve();
+      await allowServiceDecision.promise;
+      const result = await actualCheckout(reservationId, attemptId);
+      lateResponse.resolve(result);
+      return result;
+    });
+    const view = render(
+      <StrictMode>
+        <SalePage service={service} />
+      </StrictMode>,
+    );
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: "Mua ngay" }));
+    await screen.findByRole("button", { name: "Thanh toán" });
+    await user.click(screen.getByRole("button", { name: "Thanh toán" }));
+    await checkoutStarted.promise;
+    view.unmount();
+
+    runtime.advanceTo(runtime.nowValue + testConfig.reservationDurationMs);
+    runtime.runDue();
+    expect(service.getSnapshot()).toMatchObject({ available: 5, reserved: 0, sold: 0 });
+    await act(async () => {
+      allowServiceDecision.resolve();
+      const result = await lateResponse.promise;
+      expect(result).toMatchObject({ ok: false, reason: "reservation-expired" });
+    });
+
+    expect(service.getSnapshot()).toMatchObject({ available: 5, reserved: 0, sold: 0 });
+    expect(runtime.timers.size).toBe(0);
+    expect(frames.size).toBe(0);
+    expect(view.container.childElementCount).toBe(0);
+  });
+
+  it("ignores checkout promise rejection after unmount while the service-owned hold timer still expires", async () => {
+    const service = new InMemoryInventoryService(testConfig, runtime);
+    const lateResponse = deferred<CheckoutResult>();
+    vi.spyOn(service, "checkout").mockImplementationOnce(() => lateResponse.promise);
+    const view = render(
+      <StrictMode>
+        <SalePage service={service} />
+      </StrictMode>,
+    );
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: "Mua ngay" }));
+    await screen.findByRole("button", { name: "Thanh toán" });
+    await user.click(screen.getByRole("button", { name: "Thanh toán" }));
+    view.unmount();
+
+    expect(frames.size).toBe(0);
+    expect(runtime.timers.size).toBe(1);
+    await act(async () => {
+      lateResponse.reject(new Error("late checkout rejection"));
+      await lateResponse.promise.catch(() => undefined);
+    });
+    expect(service.getSnapshot()).toMatchObject({ available: 4, reserved: 1, sold: 0 });
+
+    runtime.advanceTo(runtime.nowValue + testConfig.reservationDurationMs);
+    runtime.runDue();
+    expect(service.getSnapshot()).toMatchObject({ available: 5, reserved: 0, sold: 0 });
     expect(runtime.timers.size).toBe(0);
     expect(frames.size).toBe(0);
     expect(view.container.childElementCount).toBe(0);

@@ -84,7 +84,7 @@ describe("InMemoryInventoryService reservations", () => {
     expect(service.getSnapshot()).toMatchObject({ available: 4, reserved: 1, sold: 0, version: 1 });
   });
 
-  it("rejects a new reservation at the sale deadline and publishes monotonic versions", async () => {
+  it("rejects new reservations at and after the sale deadline and publishes monotonic versions", async () => {
     const runtime = new FakeInventoryRuntime();
     const service = new InMemoryInventoryService(config, runtime);
     const observedVersions: number[] = [];
@@ -93,9 +93,12 @@ describe("InMemoryInventoryService reservations", () => {
 
     runtime.setTime(service.saleEndsAt);
     const second = await service.reserve("second");
+    runtime.setTime(service.saleEndsAt + 1);
+    const after = await service.reserve("after");
 
     expect(first.ok).toBe(true);
     expect(second).toMatchObject({ ok: false, reason: "sale-ended" });
+    expect(after).toMatchObject({ ok: false, reason: "sale-ended" });
     expect(observedVersions).toEqual([1, 2]);
     expect(service.getSnapshot()).toMatchObject({ available: 5, reserved: 0, sold: 0 });
     expect(inventoryInvariantHolds(service.getSnapshot())).toBe(true);
@@ -163,6 +166,18 @@ describe("InMemoryInventoryService reservations", () => {
       reason: "reservation-expired",
       snapshot: { available: 5, reserved: 0, sold: 0 },
     });
+
+    const afterRuntime = new FakeInventoryRuntime();
+    const afterService = new InMemoryInventoryService(config, afterRuntime);
+    const after = await afterService.reserve("after-expiry");
+    if (!after.ok) throw new Error("Expected the reservation to succeed");
+    afterRuntime.setTime(after.reservation.expiresAt + 1);
+    const rejectedAfter = await afterService.checkout(after.reservation.id, "attempt-after");
+    expect(rejectedAfter).toMatchObject({
+      ok: false,
+      reason: "reservation-expired",
+      snapshot: { available: 5, reserved: 0, sold: 0 },
+    });
   });
 
   it("makes repeated checkout attempts idempotent", async () => {
@@ -211,6 +226,26 @@ describe("InMemoryInventoryService reservations", () => {
       reason: "reservation-expired",
       snapshot: { available: 5, reserved: 0, sold: 0 },
     });
+    expect(inventoryInvariantHolds(service.getSnapshot())).toBe(true);
+  });
+
+  it("keeps a checkout that commits before expiry when the old expiry callback runs later", async () => {
+    const runtime = new FakeInventoryRuntime();
+    const service = new InMemoryInventoryService(config, runtime);
+    const reserved = await service.reserve("checkout-wins-race");
+    if (!reserved.ok) throw new Error("Expected the reservation to succeed");
+    const expiryHandle = [...runtime.callbacks.keys()][0];
+
+    const pendingCheckout = service.checkout(reserved.reservation.id, "checkout-wins-attempt");
+    runtime.setTime(reserved.reservation.expiresAt - 1);
+    const checkout = await pendingCheckout;
+    expect(checkout).toMatchObject({ ok: true, snapshot: { available: 4, reserved: 0, sold: 1 } });
+
+    runtime.setTime(reserved.reservation.expiresAt);
+    runtime.runDue();
+    runtime.invokeHistorical(expiryHandle);
+
+    expect(service.getSnapshot()).toMatchObject({ available: 4, reserved: 0, sold: 1, version: 2 });
     expect(inventoryInvariantHolds(service.getSnapshot())).toBe(true);
   });
 
