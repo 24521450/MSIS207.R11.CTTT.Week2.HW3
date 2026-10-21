@@ -62,6 +62,17 @@ export function transition(state: SaleState, event: SaleEvent): SaleState {
         requestId: event.requestId,
       };
 
+    case "RESERVE_EXPIRED":
+      if (state.tag !== "reserving" || state.requestId !== event.requestId) {
+        return state;
+      }
+      return {
+        tag: "expired",
+        reservationId: event.reservationId,
+        expiredAt: event.expiredAt,
+        message: event.message,
+      };
+
     case "CHECKOUT_REQUESTED": {
       let reservation: Reservation | undefined;
       if (state.tag === "reserved") {

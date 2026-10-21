@@ -36,3 +36,11 @@ One module or closely coupled behavior group per commit. Avoid single-shot imple
 - Build checks: `npm run typecheck`, `npm test`, and `npm run build`.
 - Browser: purchase, hold countdown, checkout, and expiry; inspect visible stock, messages, and disabled states.
 - Audit: only record defects found in generated code, with test/command or commit evidence and a rerun after repair.
+
+## Delayed reservation response repair — 2026-10-21
+
+- [x] Define `RESERVE_EXPIRED` with request ID, reservation ID, expiry and message before changing behavior. Only the matching `reserving` request may accept this response.
+- [x] Add reducer and StrictMode UI regression tests for an expired response, retry, stale response after a newer request, and response after unmount.
+- [x] Route an already-expired reserve response to the matching expired state without changing the inventory service.
+- [x] Run typecheck, all 25 tests, lint, build, and the reproducible Chrome delayed-response walkthrough; save JSON/screenshot evidence and update the failure audit.
+- [ ] Commit the repair with Conventional Commits and push `main`.

@@ -72,6 +72,13 @@ export type SaleEvent =
       readonly retryable: boolean;
     }
   | {
+      readonly type: "RESERVE_EXPIRED";
+      readonly requestId: string;
+      readonly reservationId: string;
+      readonly expiredAt: number;
+      readonly message: string;
+    }
+  | {
       readonly type: "CHECKOUT_REQUESTED";
       readonly reservationId: string;
       readonly attemptId: string;

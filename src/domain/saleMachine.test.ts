@@ -64,6 +64,53 @@ describe("sale state transitions", () => {
     expect(afterOldResponse.tag).toBe("reserving");
   });
 
+  it("expires a matching reserve response that arrives after its hold deadline and permits retry", () => {
+    const reserving = transition({ tag: "idle" }, requestEvent("request-1"));
+    const expired = transition(reserving, {
+      type: "RESERVE_EXPIRED",
+      requestId: "request-1",
+      reservationId: activeReservation.id,
+      expiredAt: activeReservation.expiresAt,
+      message: "The hold expired before confirmation.",
+    });
+
+    expect(expired).toEqual({
+      tag: "expired",
+      reservationId: activeReservation.id,
+      expiredAt: activeReservation.expiresAt,
+      message: "The hold expired before confirmation.",
+    });
+    expect(transition(expired, requestEvent("request-2"))).toMatchObject({
+      tag: "reserving",
+      requestId: "request-2",
+    });
+  });
+
+  it("ignores an old expired response while a newer request or reservation is active", () => {
+    const oldExpiry: SaleEvent = {
+      type: "RESERVE_EXPIRED",
+      requestId: "old-request",
+      reservationId: "old-reservation",
+      expiredAt: 16_000,
+      message: "Old delayed response.",
+    };
+    const newerRequest = transition({ tag: "idle" }, requestEvent("new-request"));
+    expect(transition(newerRequest, oldExpiry)).toBe(newerRequest);
+
+    const newerReservation: SaleState = {
+      tag: "reserved",
+      reservation: { ...activeReservation, id: "new-reservation" },
+    };
+    expect(transition(newerReservation, oldExpiry)).toBe(newerReservation);
+
+    const completed: SaleState = {
+      tag: "completed",
+      reservationId: "new-reservation",
+      completedAt: 17_000,
+    };
+    expect(transition(completed, oldExpiry)).toBe(completed);
+  });
+
   it("retains actionable checkout errors, allows retry, and ignores old attempts", () => {
     let state: SaleState = { tag: "reserved", reservation: activeReservation };
     state = transition(state, {

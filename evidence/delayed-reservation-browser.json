@@ -1,0 +1,88 @@
+{
+  "checkedAt": "2026-10-21T08:34:53.927Z",
+  "environment": {
+    "browser": "Chrome 155.0.8059.85",
+    "node": "v24.15.0",
+    "platform": "win32",
+    "osRelease": "10.0.26300",
+    "server": "Vite development server; StrictMode application entrypoint",
+    "clock": "Playwright browser clock, advanced 16000 ms after reservation commit"
+  },
+  "reservationTtlMs": 15000,
+  "responseDelayMs": 16000,
+  "pending": {
+    "message": "Đang gửi yêu cầu giữ 1 sản phẩm…",
+    "buyDisabled": true,
+    "inventory": {
+      "initialStock": 5,
+      "available": 4,
+      "reserved": 1,
+      "sold": 0,
+      "version": 1
+    },
+    "visibleInventory": [
+      4,
+      1,
+      0
+    ]
+  },
+  "expired": {
+    "message": "Thời gian giữ hàng đã hết trước khi giao diện xác nhận.",
+    "buyDisabled": false,
+    "inventory": {
+      "initialStock": 5,
+      "available": 5,
+      "reserved": 0,
+      "sold": 0,
+      "version": 2
+    },
+    "visibleInventory": [
+      5,
+      0,
+      0
+    ]
+  },
+  "retry": {
+    "message": "Đã giữ sản phẩm cho bạn. Hãy thanh toán trước khi hết giờ.",
+    "buyDisabled": true,
+    "inventory": {
+      "initialStock": 5,
+      "available": 4,
+      "reserved": 1,
+      "sold": 0,
+      "version": 3
+    },
+    "visibleInventory": [
+      4,
+      1,
+      0
+    ]
+  },
+  "oldExpiry": {
+    "changed": false,
+    "snapshot": {
+      "initialStock": 5,
+      "available": 4,
+      "reserved": 1,
+      "sold": 0,
+      "version": 3
+    }
+  },
+  "checkout": {
+    "message": "Thanh toán mô phỏng thành công. Sản phẩm đã được bán.",
+    "buyDisabled": true,
+    "inventory": {
+      "initialStock": 5,
+      "available": 4,
+      "reserved": 0,
+      "sold": 1,
+      "version": 4
+    },
+    "visibleInventory": [
+      4,
+      0,
+      1
+    ]
+  },
+  "errors": []
+}

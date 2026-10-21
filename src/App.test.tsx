@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 import { StrictMode } from "react";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SalePage } from "./App";
 import { InMemoryInventoryService } from "./domain/inventoryService";
-import type { InventoryRuntime, SaleConfig } from "./domain/contracts";
+import type { InventoryRuntime, ReserveResult, SaleConfig } from "./domain/contracts";
 
 const testConfig: SaleConfig = {
   productName: "Demo headphones",
@@ -51,6 +51,26 @@ class ControlledRuntime implements InventoryRuntime {
       due[1].callback();
     }
   }
+}
+
+function delayNextReserveResponse(service: InMemoryInventoryService): () => ReserveResult {
+  const reserve = service.reserve.bind(service);
+  let response: ReserveResult | undefined;
+  let deliver!: (response: ReserveResult) => void;
+  const delayedResponse = new Promise<ReserveResult>((resolve) => {
+    deliver = resolve;
+  });
+
+  vi.spyOn(service, "reserve").mockImplementationOnce(async (requestId) => {
+    response = await reserve(requestId);
+    return delayedResponse;
+  });
+
+  return () => {
+    if (response === undefined) throw new Error("The reservation has not committed yet.");
+    deliver(response);
+    return response;
+  };
 }
 
 let runtime: ControlledRuntime;
@@ -145,6 +165,105 @@ describe("Mega-Sale UI", () => {
     );
     expect(service.getSnapshot()).toMatchObject({ available: 5, reserved: 0, sold: 0 });
     expect(screen.getByRole("button", { name: "Mua ngay" }).hasAttribute("disabled")).toBe(false);
+  });
+
+  it("recovers from a response delayed beyond the hold deadline and can buy again in StrictMode", async () => {
+    const service = new InMemoryInventoryService(testConfig, runtime);
+    const deliverResponse = delayNextReserveResponse(service);
+    render(
+      <StrictMode>
+        <SalePage service={service} />
+      </StrictMode>,
+    );
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: "Mua ngay" }));
+    expect(screen.getByRole("button", { name: "Đang giữ hàng…" }).hasAttribute("disabled")).toBe(true);
+    expect(service.getSnapshot()).toMatchObject({ available: 4, reserved: 1, sold: 0 });
+
+    await act(async () => {
+      runtime.advanceTo(runtime.nowValue + 16_000);
+      runtime.runDue();
+      document.dispatchEvent(new Event("visibilitychange"));
+      deliverResponse();
+    });
+
+    expect(screen.getByText("Thời gian giữ hàng đã hết trước khi giao diện xác nhận.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Mua ngay" }).hasAttribute("disabled")).toBe(false);
+    expect(service.getSnapshot()).toMatchObject({ available: 5, reserved: 0, sold: 0, version: 2 });
+
+    await user.click(screen.getByRole("button", { name: "Mua ngay" }));
+    await screen.findByRole("button", { name: "Thanh toán" });
+    expect(service.getSnapshot()).toMatchObject({ available: 4, reserved: 1, sold: 0, version: 3 });
+    expect(service.expireReservation("operation-1").changed).toBe(false);
+    expect(service.getSnapshot()).toMatchObject({ available: 4, reserved: 1, sold: 0, version: 3 });
+
+    await user.click(screen.getByRole("button", { name: "Thanh toán" }));
+    await screen.findByText("Đặt hàng thành công");
+    expect(service.getSnapshot()).toMatchObject({ available: 4, reserved: 0, sold: 1, version: 4 });
+  });
+
+  it("ignores an old expired response after remounting and starting a newer reservation", async () => {
+    const service = new InMemoryInventoryService(testConfig, runtime);
+    const deliverOldResponse = delayNextReserveResponse(service);
+    const firstView = render(
+      <StrictMode>
+        <SalePage service={service} />
+      </StrictMode>,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Mua ngay" }));
+
+    await act(async () => {
+      runtime.advanceTo(runtime.nowValue + 16_000);
+      runtime.runDue();
+    });
+    firstView.unmount();
+    render(
+      <StrictMode>
+        <SalePage service={service} />
+      </StrictMode>,
+    );
+    await user.click(screen.getByRole("button", { name: "Mua ngay" }));
+    await screen.findByRole("button", { name: "Thanh toán" });
+    const newerSnapshot = service.getSnapshot();
+
+    await act(async () => {
+      deliverOldResponse();
+    });
+
+    expect(screen.getByText("Đã giữ sản phẩm cho bạn. Hãy thanh toán trước khi hết giờ.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Thanh toán" }).hasAttribute("disabled")).toBe(false);
+    expect(service.getSnapshot()).toEqual(newerSnapshot);
+    expect(service.getSnapshot()).toMatchObject({ available: 4, reserved: 1, sold: 0, version: 3 });
+
+    await user.click(screen.getByRole("button", { name: "Thanh toán" }));
+    await screen.findByText("Đặt hàng thành công");
+    expect(service.getSnapshot()).toMatchObject({ available: 4, reserved: 0, sold: 1 });
+  });
+
+  it("releases a successful response delivered after unmount without restarting UI work", async () => {
+    const service = new InMemoryInventoryService(testConfig, runtime);
+    const deliverResponse = delayNextReserveResponse(service);
+    const view = render(
+      <StrictMode>
+        <SalePage service={service} />
+      </StrictMode>,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Mua ngay" }));
+    expect(service.getSnapshot()).toMatchObject({ available: 4, reserved: 1, sold: 0 });
+
+    view.unmount();
+    expect(frames.size).toBe(0);
+    await act(async () => {
+      deliverResponse();
+    });
+
+    expect(service.getSnapshot()).toMatchObject({ available: 5, reserved: 0, sold: 0, version: 2 });
+    expect(runtime.timers.size).toBe(0);
+    expect(frames.size).toBe(0);
+    expect(view.container.childElementCount).toBe(0);
   });
 
   it("cleans the active animation frame on unmount", () => {

@@ -131,7 +131,8 @@ export function useSaleController(
           const expiry = service.expireReservation(result.reservation.id);
           acceptSnapshot(expiry.snapshot);
           dispatch({
-            type: "RESERVATION_EXPIRED",
+            type: "RESERVE_EXPIRED",
+            requestId,
             reservationId: result.reservation.id,
             expiredAt: result.reservation.expiresAt,
             message: "Thời gian giữ hàng đã hết trước khi giao diện xác nhận.",

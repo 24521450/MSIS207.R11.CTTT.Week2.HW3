@@ -34,6 +34,14 @@ Audit of defects found in AI-generated implementation and verification work for 
 - **Cách sửa:** Create the newer reservation at mock time 2,000 ms, after releasing the old one at 1,000 ms. Its 17,000 ms expiry is later than the old reservation's 16,000 ms expiry.
 - **Kiểm chứng lại:** Invoking the old callback at 16,000 ms leaves the newer reservation active and does not increment the inventory version; the service suite passes.
 
+## 5. Expired reserve response left the UI stuck in `reserving`
+
+- **Biểu hiện:** A reservation was committed with a 15-second hold, but its successful response was delivered after 16 seconds. Inventory correctly returned to available 5 / reserved 0 / sold 0 while the UI kept showing `Đang giữ hàng…` and disabled the buy button indefinitely.
+- **Nguyên nhân:** `useSaleController` dispatched `RESERVATION_EXPIRED` before the reserve response had been confirmed. That reducer branch only accepts a matching reservation already in `reserved`, `checkingOut`, or an error state, so it ignored the event while still `reserving`.
+- **Bằng chứng trước sửa:** The independent browser review reproduced the stuck state. Before changing runtime behavior, the new component test `recovers from a response delayed beyond the hold deadline and can buy again in StrictMode` failed to find the expiry message; its DOM output still showed `Đang gửi yêu cầu giữ 1 sản phẩm…`, stock 5/0/0 and a disabled buy button.
+- **Cách sửa:** Add the contract-first `RESERVE_EXPIRED` event carrying the reserve request ID. The reducer accepts it only for the current `reserving` request and transitions directly to `expired`. The hook keeps using the service's idempotent expiry operation and versioned snapshots, so expiry does not return stock twice.
+- **Kiểm chứng lại:** All 25 tests pass, including two new reducer cases and three new StrictMode component cases for expiry/retry, an old expired response after a newer reservation, and a response after unmount. `npm run verify:browser` passes in Chrome 155.0.8059.85 with a 16-second delayed response: stock 5/0/0 and buy enabled after expiry, 4/1/0 after retry, then 4/0/1 after checkout; an old expiry leaves the newer reservation unchanged. Evidence: [`evidence/delayed-reservation-browser.json`](evidence/delayed-reservation-browser.json) and [`evidence/delayed-reservation-recovered.png`](evidence/delayed-reservation-recovered.png).
+
 ## Scope note
 
-The last two entries were mistakes in generated test assumptions, not defects in the service. They are retained because they produced concrete failing evidence and initially obscured correct expiry behavior. The source and test suite avoid raw HTML injection, `var`, `setInterval`, and unstable React list keys.
+Entries 3 and 4 were mistakes in generated test assumptions, not defects in the service. They are retained because they produced concrete failing evidence and initially obscured correct expiry behavior. The source and test suite avoid raw HTML injection, `var`, `setInterval`, and unstable React list keys.
